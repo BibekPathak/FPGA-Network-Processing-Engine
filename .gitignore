@@ -1,0 +1,28 @@
+# Build artifacts
+build/
+obj_dir/
+
+# Waveforms
+*.vcd
+*.vcd.gz
+*.fst
+
+# Simulation
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor
+*.swp
+*.swo
+*~
+.DS_Store
+.vscode/
+.idea/
+
+# OS
+*.o
+*.a
