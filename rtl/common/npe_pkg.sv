@@ -80,6 +80,21 @@ package npe_pkg;
   } classifier_rule_t;
 
   // ---------------------------------------------------------------------------
+  // Rule engine action
+  // ---------------------------------------------------------------------------
+  typedef enum logic [1:0] {
+    ACTION_ALLOW    = 2'd0,
+    ACTION_DROP     = 2'd1,
+    ACTION_REDIRECT = 2'd2,
+    ACTION_MIRROR   = 2'd3
+  } rule_action_t;
+
+  typedef struct packed {
+    rule_action_t   action;
+    logic [7:0]     queue_id;   // used by REDIRECT
+  } action_entry_t;
+
+  // ---------------------------------------------------------------------------
   // Constants
   // ---------------------------------------------------------------------------
   parameter int  MAX_PKT_BYTES    = 1518;

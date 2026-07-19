@@ -22,12 +22,12 @@ module parser_pipeline #(
   import npe_pkg::*;
 
   // Inter-stage connections
-  packet_metadata_t meta_eth, meta_vlan, meta_ip, meta_l4, meta_class;
-  logic [DATA_WIDTH-1:0]   d_eth, d_vlan, d_ip, d_l4, d_class;
-  logic [DATA_WIDTH/8-1:0] k_eth, k_vlan, k_ip, k_l4, k_class;
-  logic                     l_eth, l_vlan, l_ip, l_l4, l_class;
-  logic                     v_eth, v_vlan, v_ip, v_l4, v_class;
-  logic                     r_eth, r_vlan, r_ip, r_l4, r_class;
+  packet_metadata_t meta_eth, meta_vlan, meta_ip, meta_l4, meta_class, meta_rule;
+  logic [DATA_WIDTH-1:0]   d_eth, d_vlan, d_ip, d_l4, d_class, d_rule;
+  logic [DATA_WIDTH/8-1:0] k_eth, k_vlan, k_ip, k_l4, k_class, k_rule;
+  logic                     l_eth, l_vlan, l_ip, l_l4, l_class, l_rule;
+  logic                     v_eth, v_vlan, v_ip, v_l4, v_class, v_rule;
+  logic                     r_eth, r_vlan, r_ip, r_l4, r_class, r_rule;
 
   // Stage 1: Ethernet parser
   ethernet_parser #(.DATA_WIDTH(DATA_WIDTH)) eth_inst (
@@ -71,7 +71,7 @@ module parser_pipeline #(
     .s_tdata(d_ip), .s_tkeep(k_ip), .s_tlast(l_ip),
     .s_tvalid(v_ip), .s_tready(r_udp),
     .m_tdata(d_udp), .m_tkeep(k_udp), .m_tlast(l_udp),
-    .m_tvalid(v_udp), .m_tready(r_class),
+    .m_tvalid(v_udp), .m_tready(r_rule),
     .s_meta(meta_ip), .m_meta(meta_udp)
   );
 
@@ -80,7 +80,7 @@ module parser_pipeline #(
     .s_tdata(d_ip), .s_tkeep(k_ip), .s_tlast(l_ip),
     .s_tvalid(v_ip), .s_tready(r_tcp),
     .m_tdata(d_tcp), .m_tkeep(k_tcp), .m_tlast(l_tcp),
-    .m_tvalid(v_tcp), .m_tready(r_class),
+    .m_tvalid(v_tcp), .m_tready(r_rule),
     .s_meta(meta_ip), .m_meta(meta_tcp)
   );
 
@@ -99,14 +99,24 @@ module parser_pipeline #(
     .s_tdata(d_l4), .s_tkeep(k_l4), .s_tlast(l_l4),
     .s_tvalid(v_l4), .s_tready(r_class),
     .m_tdata(d_class), .m_tkeep(k_class), .m_tlast(l_class),
-    .m_tvalid(v_class), .m_tready(m_tready),
+    .m_tvalid(v_class), .m_tready(r_rule),
     .s_meta(meta_l4), .m_meta(meta_class)
   );
 
-  assign m_tdata  = d_class;
-  assign m_tkeep  = k_class;
-  assign m_tlast  = l_class;
-  assign m_tvalid = v_class;
-  assign m_meta   = meta_class;
+  // Stage 6: Rule engine
+  rule_engine #(.DATA_WIDTH(DATA_WIDTH)) rule_inst (
+    .clk, .rst_n,
+    .s_tdata(d_class), .s_tkeep(k_class), .s_tlast(l_class),
+    .s_tvalid(v_class), .s_tready(r_rule),
+    .m_tdata(d_rule), .m_tkeep(k_rule), .m_tlast(l_rule),
+    .m_tvalid(v_rule), .m_tready(m_tready),
+    .s_meta(meta_class), .m_meta(meta_rule)
+  );
+
+  assign m_tdata  = d_rule;
+  assign m_tkeep  = k_rule;
+  assign m_tlast  = l_rule;
+  assign m_tvalid = v_rule;
+  assign m_meta   = meta_rule;
 
 endmodule

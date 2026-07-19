@@ -33,10 +33,13 @@ RTL_PARSERS := \
 RTL_CLASSIFIERS := \
 	$(RTL_DIR)/classifiers/packet_classifier.sv
 
+RTL_FILTERS := \
+	$(RTL_DIR)/filters/rule_engine.sv
+
 RTL_TOP    := \
 	$(RTL_DIR)/top/parser_pipeline.sv
 
-RTL_SRCS   := $(RTL_CORE) $(RTL_PARSERS) $(RTL_CLASSIFIERS) $(RTL_TOP)
+RTL_SRCS   := $(RTL_CORE) $(RTL_PARSERS) $(RTL_CLASSIFIERS) $(RTL_FILTERS) $(RTL_TOP)
 
 # Testbench sources
 TB_SRCS    := $(SIM_DIR)/testbenches/$(TOP).cpp
