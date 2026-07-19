@@ -22,17 +22,24 @@ module vlan_parser #(
 
   import npe_pkg::*;
 
-  function automatic logic [7:0] byte_at(logic [DATA_WIDTH-1:0] data, int idx);
-    return data[idx*8 +: 8];
+  function automatic logic [15:0] word16_be(logic [DATA_WIDTH-1:0] d, int idx);
+    return {d[idx*8 +: 8], d[(idx+1)*8 +: 8]};
   endfunction
 
-  function automatic logic [15:0] word16_at(logic [DATA_WIDTH-1:0] data, int idx);
-    return {data[(idx+1)*8-1 -: 8], data[idx*8 +: 8]};
-  endfunction
-
-  // VLAN tag is at bytes 14-17 (immediately after Ethernet header)
-  localparam int VLAN_TCI_OFFSET = 14;
+  localparam int VLAN_TCI_OFFSET  = 14;
   localparam int VLAN_ETYPE_OFFSET = 16;
+
+  logic first_beat;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      first_beat <= 1'b1;
+    end else if (s_tvalid && s_tready && s_tlast) begin
+      first_beat <= 1'b1;
+    end else if (s_tvalid && s_tready && first_beat) begin
+      first_beat <= 1'b0;
+    end
+  end
 
   logic [11:0] vlan_id;
   logic [2:0]  vlan_prio;
@@ -40,13 +47,11 @@ module vlan_parser #(
   logic [15:0] inner_ethertype;
   logic        has_vlan;
 
-  always_comb begin
-    vlan_id  = word16_at(s_tdata, VLAN_TCI_OFFSET)[11:0];
-    vlan_prio = word16_at(s_tdata, VLAN_TCI_OFFSET)[15:13];
-    vlan_cfi  = word16_at(s_tdata, VLAN_TCI_OFFSET)[12];
-    inner_ethertype = word16_at(s_tdata, VLAN_ETYPE_OFFSET);
-    has_vlan = s_meta.vlan_valid;
-  end
+  assign has_vlan = s_meta.vlan_valid;
+  assign vlan_id  = word16_be(s_tdata, VLAN_TCI_OFFSET)[11:0];
+  assign vlan_prio = word16_be(s_tdata, VLAN_TCI_OFFSET)[15:13];
+  assign vlan_cfi  = word16_be(s_tdata, VLAN_TCI_OFFSET)[12];
+  assign inner_ethertype = word16_be(s_tdata, VLAN_ETYPE_OFFSET);
 
   // -------------------------------------------------------------------------
   // Pipeline register
@@ -65,13 +70,15 @@ module vlan_parser #(
       pipe_tkeep  <= s_tkeep;
       pipe_tlast  <= s_tlast;
       pipe_valid  <= s_tvalid;
-      pipe_meta   <= s_meta;
 
-      if (has_vlan) begin
-        pipe_meta.vlan_id   <= vlan_id;
-        pipe_meta.vlan_prio <= vlan_prio;
-        pipe_meta.vlan_cfi  <= vlan_cfi;
-        pipe_meta.ethertype <= inner_ethertype;
+      if (first_beat && s_tvalid && s_tready) begin
+        pipe_meta <= s_meta;
+        if (has_vlan) begin
+          pipe_meta.vlan_id   <= vlan_id;
+          pipe_meta.vlan_prio <= vlan_prio;
+          pipe_meta.vlan_cfi  <= vlan_cfi;
+          pipe_meta.ethertype <= inner_ethertype;
+        end
       end
     end
   end

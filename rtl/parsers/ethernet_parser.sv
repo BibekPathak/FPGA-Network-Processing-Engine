@@ -24,67 +24,59 @@ module ethernet_parser #(
 
   localparam int KEEP_W = DATA_WIDTH / 8;
 
-  // -------------------------------------------------------------------------
-  // Byte extraction helpers
-  // -------------------------------------------------------------------------
-  function automatic logic [7:0] byte_at(logic [DATA_WIDTH-1:0] data, int idx);
-    return data[idx*8 +: 8];
+  function automatic logic [15:0] word16_be(logic [DATA_WIDTH-1:0] d, int idx);
+    return {d[idx*8 +: 8], d[(idx+1)*8 +: 8]};
   endfunction
 
-  function automatic logic [15:0] word16_at(logic [DATA_WIDTH-1:0] data, int idx);
-    return {data[(idx+1)*8-1 -: 8], data[idx*8 +: 8]};
+  function automatic logic [47:0] mac_be(logic [DATA_WIDTH-1:0] d, int idx);
+    return {d[idx*8 +: 8], d[(idx+1)*8 +: 8],
+            d[(idx+2)*8 +: 8], d[(idx+3)*8 +: 8],
+            d[(idx+4)*8 +: 8], d[(idx+5)*8 +: 8]};
   endfunction
 
-  function automatic logic [47:0] mac_at(logic [DATA_WIDTH-1:0] data, int idx);
-    return {data[(idx+5)*8-1 -: 8], data[(idx+4)*8-1 -: 8],
-            data[(idx+3)*8-1 -: 8], data[(idx+2)*8-1 -: 8],
-            data[(idx+1)*8-1 -: 8], data[idx*8 +: 8]};
-  endfunction
-
-  // -------------------------------------------------------------------------
-  // Field extraction — from first beat bytes 0-13
-  // -------------------------------------------------------------------------
-  logic [47:0] dst_mac;
-  logic [47:0] src_mac;
-  logic [15:0] ethertype;
-  logic        is_vlan;
-
-  assign dst_mac   = mac_at(s_tdata, 0);
-  assign src_mac   = mac_at(s_tdata, 6);
-  assign ethertype = word16_at(s_tdata, 12);
-  assign is_vlan   = (ethertype == ETYPE_VLAN);
-
-  // -------------------------------------------------------------------------
-  // Packet length accumulator
-  // -------------------------------------------------------------------------
-  logic [15:0] pkt_len_acc;
-  logic        pkt_len_valid;
-
-  function automatic int count_keep_bits(logic [KEEP_W-1:0] k);
+  function automatic int count_keep(logic [KEEP_W-1:0] k);
     int c = 0;
     for (int i = 0; i < KEEP_W; i++) if (k[i]) c++;
     return c;
   endfunction
 
+  // -------------------------------------------------------------------------
+  // First-beat tracker and packet length counter
+  // -------------------------------------------------------------------------
+  logic        first_beat;
+  logic [15:0] pkt_len;
+
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      pkt_len_acc   <= '0;
-      pkt_len_valid <= 1'b1;
+      first_beat <= 1'b1;
+      pkt_len    <= '0;
     end else if (s_tvalid && s_tready) begin
       if (s_tlast) begin
-        pkt_len_acc   <= pkt_len_acc + count_keep_bits(s_tkeep);
-        pkt_len_valid <= 1'b1;
-      end else if (pkt_len_valid) begin
-        pkt_len_acc   <= count_keep_bits(s_tkeep);
-        pkt_len_valid <= 1'b0;
+        first_beat <= 1'b1;
+        pkt_len    <= pkt_len + count_keep(s_tkeep);
+      end else if (first_beat) begin
+        first_beat <= 1'b0;
+        pkt_len    <= count_keep(s_tkeep);
       end else begin
-        pkt_len_acc   <= pkt_len_acc + count_keep_bits(s_tkeep);
+        pkt_len    <= pkt_len + count_keep(s_tkeep);
       end
     end
   end
 
   // -------------------------------------------------------------------------
-  // Pipeline register
+  // Field extraction (combinational)
+  // -------------------------------------------------------------------------
+  logic [47:0] dst_mac, src_mac;
+  logic [15:0] ethertype;
+  logic        is_vlan;
+
+  assign dst_mac   = mac_be(s_tdata, 0);
+  assign src_mac   = mac_be(s_tdata, 6);
+  assign ethertype = word16_be(s_tdata, 12);
+  assign is_vlan   = (ethertype == ETYPE_VLAN);
+
+  // -------------------------------------------------------------------------
+  // Pipeline register — update metadata only on first beat of packet
   // -------------------------------------------------------------------------
   logic                            pipe_valid;
   logic [DATA_WIDTH-1:0]           pipe_tdata;
@@ -100,13 +92,17 @@ module ethernet_parser #(
       pipe_tkeep  <= s_tkeep;
       pipe_tlast  <= s_tlast;
       pipe_valid  <= s_tvalid;
-      pipe_meta   <= s_meta;
 
-      pipe_meta.dst_mac    <= dst_mac;
-      pipe_meta.src_mac    <= src_mac;
-      pipe_meta.ethertype  <= ethertype;
-      pipe_meta.vlan_valid <= is_vlan;
-      pipe_meta.pkt_length <= pkt_len_valid ? pkt_len_acc : s_meta.pkt_length;
+      if (first_beat && s_tvalid && s_tready) begin
+        pipe_meta          <= s_meta;
+        pipe_meta.dst_mac    <= dst_mac;
+        pipe_meta.src_mac    <= src_mac;
+        pipe_meta.ethertype  <= ethertype;
+        pipe_meta.vlan_valid <= is_vlan;
+      end
+      if (s_tvalid && s_tready && s_tlast) begin
+        pipe_meta.pkt_length <= pkt_len + count_keep(s_tkeep);
+      end
     end
   end
 

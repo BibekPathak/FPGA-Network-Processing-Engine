@@ -25,47 +25,41 @@ module tcp_parser #(
   localparam int ETH_HDR_BYTES = 14;
   localparam int VLAN_BYTES    = 4;
 
-  function automatic logic [7:0] byte_at(logic [DATA_WIDTH-1:0] data, int idx);
-    return data[idx*8 +: 8];
+  function automatic logic [7:0]  byte_at(logic [DATA_WIDTH-1:0] d, int idx);
+    return d[idx*8 +: 8];
+  endfunction
+  function automatic logic [15:0] word16_be(logic [DATA_WIDTH-1:0] d, int idx);
+    return {d[idx*8 +: 8], d[(idx+1)*8 +: 8]};
+  endfunction
+  function automatic logic [31:0] word32_be(logic [DATA_WIDTH-1:0] d, int idx);
+    return {d[idx*8 +: 8], d[(idx+1)*8 +: 8],
+            d[(idx+2)*8 +: 8], d[(idx+3)*8 +: 8]};
   endfunction
 
-  function automatic logic [15:0] word16_at(logic [DATA_WIDTH-1:0] data, int idx);
-    return {data[(idx+1)*8-1 -: 8], data[idx*8 +: 8]};
-  endfunction
-
-  function automatic logic [31:0] word32_at(logic [DATA_WIDTH-1:0] data, int idx);
-    return {data[(idx+3)*8-1 -: 8], data[(idx+2)*8-1 -: 8],
-            data[(idx+1)*8-1 -: 8], data[idx*8 +: 8]};
-  endfunction
+  logic first_beat;
+  always_ff @(posedge clk) begin
+    if (!rst_n) first_beat <= 1'b1;
+    else if (s_tvalid && s_tready && s_tlast) first_beat <= 1'b1;
+    else if (s_tvalid && s_tready && first_beat) first_beat <= 1'b0;
+  end
 
   logic [5:0] l4_off;
   assign l4_off = ETH_HDR_BYTES + (s_meta.vlan_valid ? VLAN_BYTES : 5'd0)
                   + {s_meta.ip_hdr_len, 2'b00};
 
-  // -------------------------------------------------------------------------
-  // TCP field extraction
-  // -------------------------------------------------------------------------
-  logic [15:0] src_port;
-  logic [15:0] dst_port;
-  logic [31:0] seq_num;
-  logic [31:0] ack_num;
-  logic [7:0]  data_offset_byte;
+  logic [15:0] src_port, dst_port, window;
+  logic [31:0] seq_num, ack_num;
   logic [3:0]  tcp_flags_val;
-  logic [15:0] window;
   logic        is_tcp;
 
-  assign src_port       = word16_at(s_tdata, l4_off);
-  assign dst_port       = word16_at(s_tdata, l4_off + 2);
-  assign seq_num        = word32_at(s_tdata, l4_off + 4);
-  assign ack_num        = word32_at(s_tdata, l4_off + 8);
-  assign data_offset_byte = byte_at(s_tdata, l4_off + 12);
+  assign src_port       = word16_be(s_tdata, l4_off);
+  assign dst_port       = word16_be(s_tdata, l4_off + 2);
+  assign seq_num        = word32_be(s_tdata, l4_off + 4);
+  assign ack_num        = word32_be(s_tdata, l4_off + 8);
   assign tcp_flags_val  = byte_at(s_tdata, l4_off + 13)[3:0];
-  assign window         = word16_at(s_tdata, l4_off + 14);
+  assign window         = word16_be(s_tdata, l4_off + 14);
   assign is_tcp         = (s_meta.protocol == PROTO_TCP) && s_meta.ipv4_valid;
 
-  // -------------------------------------------------------------------------
-  // Pipeline register
-  // -------------------------------------------------------------------------
   logic                            pipe_valid;
   logic [DATA_WIDTH-1:0]           pipe_tdata;
   logic [DATA_WIDTH/8-1:0]         pipe_tkeep;
@@ -80,16 +74,18 @@ module tcp_parser #(
       pipe_tkeep  <= s_tkeep;
       pipe_tlast  <= s_tlast;
       pipe_valid  <= s_tvalid;
-      pipe_meta   <= s_meta;
 
-      if (is_tcp) begin
-        pipe_meta.tcp_valid  <= 1'b1;
-        pipe_meta.src_port   <= src_port;
-        pipe_meta.dst_port   <= dst_port;
-        pipe_meta.tcp_seq    <= seq_num;
-        pipe_meta.tcp_ack    <= ack_num;
-        pipe_meta.tcp_flags  <= tcp_flags_val;
-        pipe_meta.tcp_window <= window;
+      if (first_beat && s_tvalid && s_tready) begin
+        pipe_meta <= s_meta;
+        if (is_tcp) begin
+          pipe_meta.tcp_valid  <= 1'b1;
+          pipe_meta.src_port   <= src_port;
+          pipe_meta.dst_port   <= dst_port;
+          pipe_meta.tcp_seq    <= seq_num;
+          pipe_meta.tcp_ack    <= ack_num;
+          pipe_meta.tcp_flags  <= tcp_flags_val;
+          pipe_meta.tcp_window <= window;
+        end
       end
     end
   end

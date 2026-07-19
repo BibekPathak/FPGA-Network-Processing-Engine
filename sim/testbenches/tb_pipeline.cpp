@@ -1,6 +1,5 @@
 #include <cstdio>
 #include <cstdint>
-#include <cstring>
 #include <iostream>
 #include <vector>
 #include <memory>
@@ -21,12 +20,9 @@ static void set32(uint32_t* dst, const uint8_t* src, size_t n) {
 struct Sim {
   std::unique_ptr<Vparser_pipeline> dut;
   uint64_t cycles = 0;
-
   Sim() : dut(std::make_unique<Vparser_pipeline>()) {}
-
   void pre()  { dut->clk = 0; dut->eval(); }
   void post() { dut->clk = 1; dut->eval(); cycles++; }
-
   void reset() {
     dut->rst_n = 0;
     for (int i = 0; i < 4; i++) { pre(); post(); }
@@ -34,22 +30,16 @@ struct Sim {
   }
 };
 
-// Push a packet with m_tready=1 throughout.
-// Capture all output beats in order.
 void push_and_capture(Sim& sim, const std::vector<uint8_t>& pkt,
                       std::vector<uint8_t>& out, int dw) {
   sim.dut->m_tready = 1;
   size_t pos = 0;
-
   while (pos < pkt.size()) {
     size_t nb = (pkt.size() - pos < (size_t)dw) ? (pkt.size() - pos) : dw;
-    bool last = (pos + nb >= pkt.size());
-
-    // Pre: set input, capture any output
     sim.pre();
     set32(sim.dut->s_tdata.data(), &pkt[pos], nb);
     sim.dut->s_tkeep = (1ULL << nb) - 1;
-    sim.dut->s_tlast = last;
+    sim.dut->s_tlast = (pos + nb >= pkt.size());
     sim.dut->s_tvalid = 1;
     if (sim.dut->m_tvalid && sim.dut->m_tready) {
       size_t nbytes = 0;
@@ -60,13 +50,9 @@ void push_and_capture(Sim& sim, const std::vector<uint8_t>& pkt,
         out.push_back((w >> ((i % 4) * 8)) & 0xFF);
       }
     }
-
-    // Post: push current beat, pipeline advances
     sim.post();
     pos += nb;
   }
-
-  // Drain remaining beats from pipeline
   int timeout = 10000;
   while (timeout--) {
     sim.pre();
@@ -78,38 +64,19 @@ void push_and_capture(Sim& sim, const std::vector<uint8_t>& pkt,
         uint32_t w = sim.dut->m_tdata.data()[i / 4];
         out.push_back((w >> ((i % 4) * 8)) & 0xFF);
       }
-      if (sim.dut->m_tlast) {
-        sim.post();
-        break;
-      }
+      if (sim.dut->m_tlast) { sim.post(); break; }
       sim.post();
-    } else {
-      sim.post();
-      break;
-    }
+    } else { sim.post(); break; }
   }
-
-  // Flush pipeline completely (silently consume any residual)
-  for (int i = 0; i < 8; i++) {
-    sim.pre();
-    if (sim.dut->m_tvalid && sim.dut->m_tready) {
-      sim.post();
-    } else {
-      sim.post();
-    }
-  }
+  for (int i = 0; i < 8; i++) { sim.pre(); sim.post(); }
 }
 
-// Combined push + drain
 std::vector<uint8_t> push_one(Sim& sim, const std::vector<uint8_t>& pkt, int dw) {
   std::vector<uint8_t> out;
   push_and_capture(sim, pkt, out, dw);
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 bool test_udp() {
   std::cout << "=== test_udp ===\n";
   Sim sim; PacketGen gen; int dw = 8;
@@ -154,14 +121,13 @@ bool test_multi() {
   auto tcp = gen.make_tcp_packet(sm, dm, 0xC0A80001, 0xC0A80002, 80, 55555, {'H','T','T','P'});
   auto arp = gen.make_arp_packet(sm, dm, 0xC0A80001, 0xC0A80002);
   Sim su, st, sa;
-  su.reset(); auto r1 = push_one(su, udp, dw);
-  st.reset(); auto r2 = push_one(st, tcp, dw);
-  sa.reset(); auto r3 = push_one(sa, arp, dw);
-  bool pass = (r1.size()==udp.size() && r2.size()==tcp.size() && r3.size()==arp.size());
-  std::cout << "  udp=" << r1.size() << "/" << udp.size()
-            << " tcp=" << r2.size() << "/" << tcp.size()
-            << " arp=" << r3.size() << "/" << arp.size()
-            << (pass ? " PASS" : " FAIL") << "\n";
+  su.reset(); auto ru = push_one(su, udp, dw);
+  st.reset(); auto rt = push_one(st, tcp, dw);
+  sa.reset(); auto ra = push_one(sa, arp, dw);
+  bool pass = (ru.size()==udp.size() && rt.size()==tcp.size() && ra.size()==arp.size());
+  std::cout << "  udp=" << ru.size() << "/" << udp.size()
+            << " tcp=" << rt.size() << "/" << tcp.size()
+            << " arp=" << ra.size() << "/" << arp.size() << (pass ? " PASS" : " FAIL") << "\n";
   return pass;
 }
 
