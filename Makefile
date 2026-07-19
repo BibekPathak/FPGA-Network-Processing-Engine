@@ -30,10 +30,13 @@ RTL_PARSERS := \
 	$(RTL_DIR)/parsers/udp_parser.sv \
 	$(RTL_DIR)/parsers/tcp_parser.sv
 
+RTL_CLASSIFIERS := \
+	$(RTL_DIR)/classifiers/packet_classifier.sv
+
 RTL_TOP    := \
 	$(RTL_DIR)/top/parser_pipeline.sv
 
-RTL_SRCS   := $(RTL_CORE) $(RTL_PARSERS) $(RTL_TOP)
+RTL_SRCS   := $(RTL_CORE) $(RTL_PARSERS) $(RTL_CLASSIFIERS) $(RTL_TOP)
 
 # Testbench sources
 TB_SRCS    := $(SIM_DIR)/testbenches/$(TOP).cpp
@@ -111,4 +114,4 @@ help:
 	@echo ""
 	@echo "Tests:"
 	@echo "  tb_axis_fifo    FIFO infrastructure test"
-	@echo "  tb_pipeline     Parser pipeline test"
+	@echo "  tb_pipeline     Parser pipeline + classifier test"

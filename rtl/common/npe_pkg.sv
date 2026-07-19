@@ -66,6 +66,20 @@ package npe_pkg;
   } pipe_stage_t;
 
   // ---------------------------------------------------------------------------
+  // Classifier rule
+  // ---------------------------------------------------------------------------
+  typedef struct packed {
+    logic         valid;
+    logic [7:0]   protocol;   // 0 = wildcard
+    logic [31:0]  src_ip;     // 0 = wildcard
+    logic [31:0]  dst_ip;     // 0 = wildcard
+    logic [15:0]  src_port;   // 0 = wildcard
+    logic [15:0]  dst_port;   // 0 = wildcard
+    logic [7:0]   class_id;
+    logic         drop;
+  } classifier_rule_t;
+
+  // ---------------------------------------------------------------------------
   // Constants
   // ---------------------------------------------------------------------------
   parameter int  MAX_PKT_BYTES    = 1518;

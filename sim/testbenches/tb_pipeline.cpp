@@ -30,6 +30,10 @@ struct Sim {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Metadata field offsets (from npe_pkg.sv packed struct layout)
+// ---------------------------------------------------------------------------
+
 void push_and_capture(Sim& sim, const std::vector<uint8_t>& pkt,
                       std::vector<uint8_t>& out, int dw) {
   sim.dut->m_tready = 1;
@@ -131,11 +135,37 @@ bool test_multi() {
   return pass;
 }
 
+bool test_dns() {
+  std::cout << "=== test_dns (UDP/53 through classifier) ===\n";
+  Sim sim; PacketGen gen; int dw = 8;
+  sim.reset();
+  uint8_t sm[6]={0x02,0,0,0,0,1}, dm[6]={0x02,0,0,0,0,2};
+  auto pkt = gen.make_udp_packet(sm, dm, 0xC0A80001, 0xC0A80002, 1234, 53, {'D','N','S'});
+  auto rx = push_one(sim, pkt, dw);
+  bool pass = (rx.size() == pkt.size());
+  std::cout << "  rx=" << rx.size() << " exp=" << pkt.size() << (pass ? " PASS" : " FAIL") << "\n";
+  return pass;
+}
+
+bool test_http() {
+  std::cout << "=== test_http (TCP/80 through classifier) ===\n";
+  Sim sim; PacketGen gen; int dw = 8;
+  sim.reset();
+  uint8_t sm[6]={0x02,0,0,0,0,1}, dm[6]={0x02,0,0,0,0,2};
+  auto pkt = gen.make_tcp_packet(sm, dm, 0xC0A80001, 0xC0A80002, 55555, 80, {'H','T','T','P'});
+  auto rx = push_one(sim, pkt, dw);
+  bool pass = (rx.size() == pkt.size());
+  std::cout << "  rx=" << rx.size() << " exp=" << pkt.size() << (pass ? " PASS" : " FAIL") << "\n";
+  return pass;
+}
+
 int main(int argc, char** argv) {
   setbuf(stdout, NULL); setbuf(stderr, NULL);
   Verilated::commandArgs(argc, argv);
   bool all = true;
-  all &= test_udp(); all &= test_tcp(); all &= test_arp(); all &= test_multi();
+  all &= test_udp(); all &= test_tcp(); all &= test_arp();
+  all &= test_dns(); all &= test_http();
+  all &= test_multi();
   std::cout << "\n=== " << (all ? "ALL TESTS PASSED" : "SOME TESTS FAILED") << " ===\n";
   return all ? 0 : 1;
 }
