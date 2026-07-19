@@ -57,7 +57,7 @@ void push_and_capture(Sim& sim, const std::vector<uint8_t>& pkt,
     sim.post();
     pos += nb;
   }
-  int timeout = 10000;
+  int timeout = 100000;
   while (timeout--) {
     sim.pre();
     if (sim.dut->m_tvalid && sim.dut->m_tready) {
@@ -70,7 +70,9 @@ void push_and_capture(Sim& sim, const std::vector<uint8_t>& pkt,
       }
       if (sim.dut->m_tlast) { sim.post(); break; }
       sim.post();
-    } else { sim.post(); break; }
+    } else {
+      sim.post();
+    }
   }
   for (int i = 0; i < 8; i++) { sim.pre(); sim.post(); }
 }
@@ -163,7 +165,7 @@ int main(int argc, char** argv) {
   setbuf(stdout, NULL); setbuf(stderr, NULL);
   Verilated::commandArgs(argc, argv);
   bool all = true;
-  all &= test_udp(); all &= test_tcp(); all &= test_arp();
+  all &= test_tcp(); all &= test_udp(); all &= test_arp();
   all &= test_dns(); all &= test_http();
   all &= test_multi();
   std::cout << "\n=== " << (all ? "ALL TESTS PASSED" : "SOME TESTS FAILED") << " ===\n";

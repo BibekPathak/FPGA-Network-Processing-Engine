@@ -16,18 +16,28 @@ module parser_pipeline #(
     output logic                        m_tvalid,
     input  logic                        m_tready,
 
-    output packet_metadata_t            m_meta
+    output packet_metadata_t            m_meta,
+
+    // Statistics counters
+    output logic [47:0]                 cnt_packets,
+    output logic [47:0]                 cnt_bytes,
+    output logic [47:0]                 cnt_ipv4,
+    output logic [47:0]                 cnt_tcp,
+    output logic [47:0]                 cnt_udp,
+    output logic [47:0]                 cnt_arp,
+    output logic [47:0]                 cnt_drops,
+    output logic [47:0]                 cnt_errors
 );
 
   import npe_pkg::*;
 
   // Inter-stage connections
-  packet_metadata_t meta_eth, meta_vlan, meta_ip, meta_l4, meta_class, meta_rule;
-  logic [DATA_WIDTH-1:0]   d_eth, d_vlan, d_ip, d_l4, d_class, d_rule;
-  logic [DATA_WIDTH/8-1:0] k_eth, k_vlan, k_ip, k_l4, k_class, k_rule;
-  logic                     l_eth, l_vlan, l_ip, l_l4, l_class, l_rule;
-  logic                     v_eth, v_vlan, v_ip, v_l4, v_class, v_rule;
-  logic                     r_eth, r_vlan, r_ip, r_l4, r_class, r_rule;
+  packet_metadata_t meta_eth, meta_vlan, meta_ip, meta_l4, meta_class, meta_rule, meta_stats;
+  logic [DATA_WIDTH-1:0]   d_eth, d_vlan, d_ip, d_l4, d_class, d_rule, d_stats;
+  logic [DATA_WIDTH/8-1:0] k_eth, k_vlan, k_ip, k_l4, k_class, k_rule, k_stats;
+  logic                     l_eth, l_vlan, l_ip, l_l4, l_class, l_rule, l_stats;
+  logic                     v_eth, v_vlan, v_ip, v_l4, v_class, v_rule, v_stats;
+  logic                     r_eth, r_vlan, r_ip, r_l4, r_class, r_rule, r_stats;
 
   // Stage 1: Ethernet parser
   ethernet_parser #(.DATA_WIDTH(DATA_WIDTH)) eth_inst (
@@ -109,14 +119,26 @@ module parser_pipeline #(
     .s_tdata(d_class), .s_tkeep(k_class), .s_tlast(l_class),
     .s_tvalid(v_class), .s_tready(r_rule),
     .m_tdata(d_rule), .m_tkeep(k_rule), .m_tlast(l_rule),
-    .m_tvalid(v_rule), .m_tready(m_tready),
+    .m_tvalid(v_rule), .m_tready(r_stats),
     .s_meta(meta_class), .m_meta(meta_rule)
   );
 
-  assign m_tdata  = d_rule;
-  assign m_tkeep  = k_rule;
-  assign m_tlast  = l_rule;
-  assign m_tvalid = v_rule;
+  // Stage 7: Statistics engine
+  stats_engine #(.DATA_WIDTH(DATA_WIDTH)) stats_inst (
+    .clk, .rst_n,
+    .s_tdata(d_rule), .s_tkeep(k_rule), .s_tlast(l_rule),
+    .s_tvalid(v_rule), .s_tready(r_stats),
+    .m_tdata(d_stats), .m_tkeep(k_stats), .m_tlast(l_stats),
+    .m_tvalid(v_stats), .m_tready(m_tready),
+    .s_meta(meta_rule),
+    .cnt_packets, .cnt_bytes, .cnt_ipv4, .cnt_tcp,
+    .cnt_udp, .cnt_arp, .cnt_drops, .cnt_errors
+  );
+
+  assign m_tdata  = d_stats;
+  assign m_tkeep  = k_stats;
+  assign m_tlast  = l_stats;
+  assign m_tvalid = v_stats;
   assign m_meta   = meta_rule;
 
 endmodule
