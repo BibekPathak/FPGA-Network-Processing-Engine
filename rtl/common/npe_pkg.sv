@@ -95,6 +95,26 @@ package npe_pkg;
   } action_entry_t;
 
   // ---------------------------------------------------------------------------
+  // Flow table
+  // ---------------------------------------------------------------------------
+  parameter int FLOW_KEY_W = 104;  // 32+32+8+16+16 = 5-tuple bits
+
+  typedef struct packed {
+    logic [31:0]  src_ip;
+    logic [31:0]  dst_ip;
+    logic [7:0]   protocol;
+    logic [15:0]  src_port;
+    logic [15:0]  dst_port;
+  } flow_key_t;
+
+  typedef struct packed {
+    logic         valid;
+    flow_key_t    key;
+    logic [47:0]  packet_count;
+    logic [63:0]  byte_count;
+  } flow_entry_t;
+
+  // ---------------------------------------------------------------------------
   // Constants
   // ---------------------------------------------------------------------------
   parameter int  MAX_PKT_BYTES    = 1518;

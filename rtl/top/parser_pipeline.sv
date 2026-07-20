@@ -33,11 +33,11 @@ module parser_pipeline #(
 
   // Inter-stage connections
   packet_metadata_t meta_eth, meta_vlan, meta_ip, meta_l4, meta_class, meta_rule, meta_stats;
-  logic [DATA_WIDTH-1:0]   d_eth, d_vlan, d_ip, d_l4, d_class, d_rule, d_stats;
-  logic [DATA_WIDTH/8-1:0] k_eth, k_vlan, k_ip, k_l4, k_class, k_rule, k_stats;
-  logic                     l_eth, l_vlan, l_ip, l_l4, l_class, l_rule, l_stats;
-  logic                     v_eth, v_vlan, v_ip, v_l4, v_class, v_rule, v_stats;
-  logic                     r_eth, r_vlan, r_ip, r_l4, r_class, r_rule, r_stats;
+  logic [DATA_WIDTH-1:0]   d_eth, d_vlan, d_ip, d_l4, d_class, d_rule, d_stats, d_flow;
+  logic [DATA_WIDTH/8-1:0] k_eth, k_vlan, k_ip, k_l4, k_class, k_rule, k_stats, k_flow;
+  logic                     l_eth, l_vlan, l_ip, l_l4, l_class, l_rule, l_stats, l_flow;
+  logic                     v_eth, v_vlan, v_ip, v_l4, v_class, v_rule, v_stats, v_flow;
+  logic                     r_eth, r_vlan, r_ip, r_l4, r_class, r_rule, r_stats, r_flow;
 
   // Stage 1: Ethernet parser
   ethernet_parser #(.DATA_WIDTH(DATA_WIDTH)) eth_inst (
@@ -129,16 +129,26 @@ module parser_pipeline #(
     .s_tdata(d_rule), .s_tkeep(k_rule), .s_tlast(l_rule),
     .s_tvalid(v_rule), .s_tready(r_stats),
     .m_tdata(d_stats), .m_tkeep(k_stats), .m_tlast(l_stats),
-    .m_tvalid(v_stats), .m_tready(m_tready),
+    .m_tvalid(v_stats), .m_tready(r_flow),
     .s_meta(meta_rule),
     .cnt_packets, .cnt_bytes, .cnt_ipv4, .cnt_tcp,
     .cnt_udp, .cnt_arp, .cnt_drops, .cnt_errors
   );
 
-  assign m_tdata  = d_stats;
-  assign m_tkeep  = k_stats;
-  assign m_tlast  = l_stats;
-  assign m_tvalid = v_stats;
+  // Stage 8: Flow table
+  flow_table #(.DATA_WIDTH(DATA_WIDTH)) flow_inst (
+    .clk, .rst_n,
+    .s_tdata(d_stats), .s_tkeep(k_stats), .s_tlast(l_stats),
+    .s_tvalid(v_stats), .s_tready(r_flow),
+    .m_tdata(d_flow), .m_tkeep(k_flow), .m_tlast(l_flow),
+    .m_tvalid(v_flow), .m_tready(m_tready),
+    .s_meta(meta_rule)
+  );
+
+  assign m_tdata  = d_flow;
+  assign m_tkeep  = k_flow;
+  assign m_tlast  = l_flow;
+  assign m_tvalid = v_flow;
   assign m_meta   = meta_rule;
 
 endmodule
