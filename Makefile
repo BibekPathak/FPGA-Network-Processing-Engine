@@ -9,6 +9,7 @@ TOP        ?= tb_axis_fifo
 TOP_MODULE_tb_axis_fifo  := axis_fifo
 TOP_MODULE_tb_pipeline   := parser_pipeline
 TOP_MODULE_tb_scheduler  := packet_scheduler
+TOP_MODULE_tb_random     := parser_pipeline
 TOP_MODULE := $(TOP_MODULE_$(TOP))
 
 WAVES      ?= 0
@@ -103,15 +104,12 @@ lint:
 	$(VERILATOR) --lint-only $(RTL_SRCS) 2>&1
 
 # Regression
-REGRESSION_TESTS := tb_axis_fifo tb_pipeline
+REGRESSION_TESTS := tb_axis_fifo tb_pipeline tb_scheduler tb_random
 
 regression: $(foreach test,$(REGRESSION_TESTS),run_$(test))
 
-run_%: TOP := $*
-run_%: TOP_MODULE := $(TOP_MODULE_$*)
-run_%: build
-	@echo "Running $*..."
-	@$(TARGET)
+run_%:
+	$(MAKE) build TOP=$* && build/obj_dir/$*
 
 help:
 	@echo "Usage: make [target] [TOP=test_name] [WAVES=1]"
@@ -128,3 +126,5 @@ help:
 	@echo "Tests:"
 	@echo "  tb_axis_fifo    FIFO infrastructure test"
 	@echo "  tb_pipeline     Parser pipeline + classifier test"
+	@echo "  tb_scheduler    Packet scheduler test"
+	@echo "  tb_random       Constrained-random verification test"
