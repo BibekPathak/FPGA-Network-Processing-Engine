@@ -8,6 +8,7 @@ TOP        ?= tb_axis_fifo
 # Map testbench names to Verilator top modules
 TOP_MODULE_tb_axis_fifo  := axis_fifo
 TOP_MODULE_tb_pipeline   := parser_pipeline
+TOP_MODULE_tb_scheduler  := packet_scheduler
 TOP_MODULE := $(TOP_MODULE_$(TOP))
 
 WAVES      ?= 0
@@ -42,10 +43,13 @@ RTL_STATS := \
 RTL_MEMORY := \
 	$(RTL_DIR)/memory/flow_table.sv
 
+RTL_SCHEDULERS := \
+	$(RTL_DIR)/schedulers/packet_scheduler.sv
+
 RTL_TOP    := \
 	$(RTL_DIR)/top/parser_pipeline.sv
 
-RTL_SRCS   := $(RTL_CORE) $(RTL_PARSERS) $(RTL_CLASSIFIERS) $(RTL_FILTERS) $(RTL_STATS) $(RTL_MEMORY) $(RTL_TOP)
+RTL_SRCS   := $(RTL_CORE) $(RTL_PARSERS) $(RTL_CLASSIFIERS) $(RTL_FILTERS) $(RTL_STATS) $(RTL_MEMORY) $(RTL_SCHEDULERS) $(RTL_TOP)
 
 # Testbench sources
 TB_SRCS    := $(SIM_DIR)/testbenches/$(TOP).cpp
