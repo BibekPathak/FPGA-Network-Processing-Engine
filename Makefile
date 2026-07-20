@@ -10,6 +10,7 @@ TOP_MODULE_tb_axis_fifo  := axis_fifo
 TOP_MODULE_tb_pipeline   := parser_pipeline
 TOP_MODULE_tb_scheduler  := packet_scheduler
 TOP_MODULE_tb_random     := parser_pipeline
+TOP_MODULE_tb_perf       := parser_pipeline
 TOP_MODULE := $(TOP_MODULE_$(TOP))
 
 WAVES      ?= 0
