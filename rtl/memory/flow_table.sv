@@ -1,7 +1,7 @@
 module flow_table #(
     parameter int DATA_WIDTH  = 512,
-    parameter int NUM_FLOWS   = 64,
-    parameter int LOG2_FLOWS  = $clog2(NUM_FLOWS)
+    parameter int NUM_FLOWS   = 128,
+    parameter int LOG2_FLOWS  = $clog2(NUM_FLOWS / 2)  // 2-way: half the indices
 ) (
     input  logic                        clk,
     input  logic                        rst_n,
@@ -18,23 +18,31 @@ module flow_table #(
     output logic                        m_tvalid,
     input  logic                        m_tready,
 
-    input  packet_metadata_t            s_meta
+    input  packet_metadata_t            s_meta,
+
+    // Flow lookup result (for test/debug)
+    output logic                        flow_hit,
+    output logic [47:0]                 flow_packets,
+    output logic [63:0]                 flow_bytes
 );
 
   import npe_pkg::*;
 
   localparam int KEEP_W = DATA_WIDTH / 8;
+  localparam int NUM_WAYS = 2;
+  localparam int NUM_SETS = NUM_FLOWS / NUM_WAYS;
+  localparam int LOG2_SETS = $clog2(NUM_SETS);
 
   // -------------------------------------------------------------------------
-  // Flow table BRAM
+  // Flow table BRAM: 2-way set-associative
   // -------------------------------------------------------------------------
-  flow_entry_t flow_ram [NUM_FLOWS-1:0];
+  flow_entry_t flow_ram [NUM_WAYS-1:0][NUM_SETS-1:0];
+  logic [NUM_WAYS-1:0] lru;  // per-set LRU: 0 = way0 is LRU, 1 = way1 is LRU
 
   // -------------------------------------------------------------------------
-  // 5-tuple extraction (from metadata, valid on first beat)
+  // 5-tuple extraction
   // -------------------------------------------------------------------------
   flow_key_t flow_key;
-
   assign flow_key.src_ip   = s_meta.src_ip;
   assign flow_key.dst_ip   = s_meta.dst_ip;
   assign flow_key.protocol = s_meta.protocol;
@@ -42,94 +50,104 @@ module flow_table #(
   assign flow_key.dst_port = s_meta.dst_port;
 
   // -------------------------------------------------------------------------
-  // Hash function: XOR all 32-bit words of the 5-tuple, fold to table width
-  // 5-tuple = 104 bits = 4 × 32-bit + 1 × 8-bit (zero-extended)
+  // Toeplitz hash: 32-entry random secret key
   // -------------------------------------------------------------------------
-  logic [31:0] hash_words [3:0];
+  localparam logic [31:0] TOEPLITZ_KEY [32] = '{
+    32'hddaa3f5a, 32'h7c7e2b4a, 32'h8b4e9f1c, 32'hd1e3a8b6,
+    32'h5f2c7d90, 32'ha1b3c4d5, 32'he6f70819, 32'h2a3b4c5d,
+    32'h6e7f8091, 32'ha2b3c4d5, 32'he6f71829, 32'h3a4b5c6d,
+    32'h7e8f9012, 32'hb3c4d5e6, 32'hf718293a, 32'h4b5c6d7e,
+    32'h8f901234, 32'hc4d5e6f7, 32'h18293a4b, 32'h5c6d7e8f,
+    32'h90123456, 32'hd5e6f718, 32'h293a4b5c, 32'h6d7e8f90,
+    32'ha2345678, 32'he6f71829, 32'h3a4b5c6d, 32'h7e8f90a1,
+    32'hb2345678, 32'hf718293a, 32'h4b5c6d7e, 32'h8f90a1b2
+  };
 
-  assign hash_words[0] = flow_key.src_ip;
-  assign hash_words[1] = flow_key.dst_ip;
-  assign hash_words[2] = {flow_key.protocol, flow_key.src_port, 8'h00};
-  assign hash_words[3] = {16'h0000, flow_key.dst_port};
+  // Pad 5-tuple to 128 bits (4 words), convolve with key
+  logic [31:0] tuple_words [3:0];
+  assign tuple_words[0] = flow_key.src_ip;
+  assign tuple_words[1] = flow_key.dst_ip;
+  assign tuple_words[2] = {flow_key.protocol, flow_key.src_port, 8'h00};
+  assign tuple_words[3] = {8'h00, flow_key.dst_port, 8'h00, 8'h00};
 
-  logic [31:0] hash_xor;
-  logic [LOG2_FLOWS-1:0] hash_idx;
+  logic [31:0] hash_accum;
+  logic [LOG2_SETS-1:0] set_idx;
 
-  assign hash_xor = hash_words[0] ^ hash_words[1] ^ hash_words[2] ^ hash_words[3];
-  assign hash_idx = hash_xor[LOG2_FLOWS-1:0] ^ hash_xor[LOG2_FLOWS+:LOG2_FLOWS];
-
-  // -------------------------------------------------------------------------
-  // Lookup and update logic
-  // -------------------------------------------------------------------------
-  logic        update_en;
-  logic        hit;
-  logic [LOG2_FLOWS-1:0] rd_idx, wr_idx;
-
-  assign update_en = s_tvalid && s_tready && s_tlast;  // fire on packet end
-  assign rd_idx    = hash_idx;
-  assign wr_idx    = hash_idx;
-
-  // Read flow entry (combinational)
-  flow_entry_t rd_entry;
-  assign rd_entry = flow_ram[rd_idx];
-
-  // Hit detection
-  assign hit = rd_entry.valid &&
-               (rd_entry.key == flow_key);
-
-  // -------------------------------------------------------------------------
-  // Flow update on packet end
-  // -------------------------------------------------------------------------
-  logic first_beat;
-
-  always_ff @(posedge clk) begin
-    if (!rst_n) begin
-      first_beat <= 1'b1;
-    end else if (s_tvalid && s_tready && s_tlast) begin
-      first_beat <= 1'b1;
-    end else if (s_tvalid && s_tready && first_beat) begin
-      first_beat <= 1'b0;
+  always_comb begin
+    hash_accum = '0;
+    for (int w = 0; w < 4; w++) begin
+      hash_accum = hash_accum ^ (tuple_words[w] ^ TOEPLITZ_KEY[w * 8]);
+    end
+    // Fold to LOG2_SETS bits
+    for (int s = LOG2_SETS; s < 32; s = s + LOG2_SETS) begin
+      hash_accum[LOG2_SETS-1:0] = hash_accum[LOG2_SETS-1:0] ^ hash_accum[s +: LOG2_SETS];
     end
   end
+  assign set_idx = hash_accum[LOG2_SETS-1:0];
 
-  // Track packet length for byte counter
-  logic [15:0] pkt_len_q;
+  // -------------------------------------------------------------------------
+  // Lookup: check both ways
+  // -------------------------------------------------------------------------
+  wire update_en = s_tvalid && s_tready && s_tlast;
 
+  flow_entry_t rd_entry [NUM_WAYS-1:0];
+  logic        way_hit [NUM_WAYS-1:0];
+
+  assign rd_entry[0] = flow_ram[0][set_idx];
+  assign rd_entry[1] = flow_ram[1][set_idx];
+
+  assign way_hit[0]  = rd_entry[0].valid && (rd_entry[0].key == flow_key);
+  assign way_hit[1]  = rd_entry[1].valid && (rd_entry[1].key == flow_key);
+
+  assign flow_hit = way_hit[0] || way_hit[1];
+
+  // -------------------------------------------------------------------------
+  // Update on packet end
+  // -------------------------------------------------------------------------
+  logic [47:0]  hit_pkt_cnt;
+  logic [63:0]  hit_byte_cnt;
+
+  assign hit_pkt_cnt  = way_hit[0] ? rd_entry[0].packet_count : rd_entry[1].packet_count;
+  assign hit_byte_cnt = way_hit[0] ? rd_entry[0].byte_count  : rd_entry[1].byte_count;
+
+  assign flow_packets = hit_pkt_cnt;
+  assign flow_bytes   = hit_byte_cnt;
+
+  integer w, s;
   always_ff @(posedge clk) begin
     if (!rst_n) begin
-      pkt_len_q <= '0;
+      for (w = 0; w < NUM_WAYS; w++) begin
+        for (s = 0; s < NUM_SETS; s++) begin
+          flow_ram[w][s] <= '0;
+        end
+      end
+      lru <= '0;
     end else if (update_en) begin
-      pkt_len_q <= s_meta.pkt_length;
-    end
-  end
-
-  // Update flow table entry on packet end
-  always_ff @(posedge clk) begin
-    if (update_en) begin
-      if (hit) begin
-        flow_ram[wr_idx].packet_count <= rd_entry.packet_count + 1'b1;
-        flow_ram[wr_idx].byte_count   <= rd_entry.byte_count + s_meta.pkt_length;
+      if (flow_hit) begin
+        // Update hit entry
+        for (w = 0; w < NUM_WAYS; w++) begin
+          if (way_hit[w]) begin
+            flow_ram[w][set_idx].packet_count <= hit_pkt_cnt + 1'b1;
+            flow_ram[w][set_idx].byte_count   <= hit_byte_cnt + s_meta.pkt_length;
+            // Update LRU: make this way the most recently used
+            lru[set_idx] <= (w == 0) ? 1'b1 : 1'b0;
+          end
+        end
       end else begin
-        flow_ram[wr_idx].valid         <= 1'b1;
-        flow_ram[wr_idx].key           <= flow_key;
-        flow_ram[wr_idx].packet_count  <= 48'd1;
-        flow_ram[wr_idx].byte_count    <= s_meta.pkt_length;
-      end
-    end
-  end
-
-  // Reset all entries
-  integer i;
-  always_ff @(posedge clk) begin
-    if (!rst_n) begin
-      for (i = 0; i < NUM_FLOWS; i++) begin
-        flow_ram[i] <= '0;
+        // Miss: insert into LRU way
+        w = lru[set_idx] ? 0 : 1;  // insert into LRU way
+        flow_ram[w][set_idx].valid         <= 1'b1;
+        flow_ram[w][set_idx].key           <= flow_key;
+        flow_ram[w][set_idx].packet_count  <= 48'd1;
+        flow_ram[w][set_idx].byte_count    <= s_meta.pkt_length;
+        // Flip LRU for next eviction
+        lru[set_idx] <= ~lru[set_idx];
       end
     end
   end
 
   // -------------------------------------------------------------------------
-  // Data passthrough pipeline register
+  // Data passthrough
   // -------------------------------------------------------------------------
   logic                            pipe_valid;
   logic [DATA_WIDTH-1:0]           pipe_tdata;
