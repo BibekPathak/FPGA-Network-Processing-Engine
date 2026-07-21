@@ -13,6 +13,8 @@ TOP_MODULE_tb_random     := parser_pipeline
 TOP_MODULE_tb_perf       := parser_pipeline
 TOP_MODULE_tb_match_action := parser_pipeline
 TOP_MODULE_tb_flow       := parser_pipeline
+TOP_MODULE_tb_crc        := crc32
+TOP_MODULE_tb_rate_limiter := token_bucket
 TOP_MODULE := $(TOP_MODULE_$(TOP))
 
 WAVES      ?= 0
@@ -26,7 +28,8 @@ BUILD_DIR  := build
 RTL_CORE   := \
 	$(RTL_DIR)/common/npe_pkg.sv \
 	$(RTL_DIR)/interfaces/axis_register.sv \
-	$(RTL_DIR)/interfaces/axis_fifo.sv
+	$(RTL_DIR)/interfaces/axis_fifo.sv \
+	$(RTL_DIR)/interfaces/crc32.sv
 
 RTL_PARSERS := \
 	$(RTL_DIR)/parsers/ethernet_parser.sv \
@@ -40,7 +43,8 @@ RTL_CLASSIFIERS := \
 	$(RTL_DIR)/classifiers/packet_modifier.sv
 
 RTL_FILTERS := \
-	$(RTL_DIR)/filters/rule_engine.sv
+	$(RTL_DIR)/filters/rule_engine.sv \
+	$(RTL_DIR)/filters/token_bucket.sv
 
 RTL_STATS := \
 	$(RTL_DIR)/stats/stats_engine.sv
