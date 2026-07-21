@@ -95,6 +95,41 @@ package npe_pkg;
   } action_entry_t;
 
   // ---------------------------------------------------------------------------
+  // Match-action pipeline
+  // ---------------------------------------------------------------------------
+  typedef enum logic [2:0] {
+    MOD_NOP       = 3'd0,
+    MOD_TTL_DEC   = 3'd1,
+    MOD_MAC_SWAP  = 3'd2,   // swap src/dst MAC
+    MOD_MAC_SET   = 3'd3,   // set new src/dst MAC
+    MOD_IP_SET    = 3'd4,   // set new src/dst IP
+    MOD_VLAN_PUSH = 3'd5,   // insert VLAN tag
+    MOD_VLAN_POP  = 3'd6    // remove VLAN tag
+  } modifier_action_t;
+
+  typedef struct packed {
+    logic [47:0]  new_dst_mac;
+    logic [47:0]  new_src_mac;
+    logic [31:0]  new_src_ip;
+    logic [31:0]  new_dst_ip;
+    logic [11:0]  vlan_id;
+    logic [2:0]   vlan_prio;
+  } modifier_data_t;
+
+  typedef struct packed {
+    logic              valid;
+    logic [7:0]        protocol;    // 0 = wildcard
+    logic [31:0]       src_ip;      // 0 = wildcard
+    logic [31:0]       dst_ip;      // 0 = wildcard
+    logic [15:0]       src_port;    // 0 = wildcard
+    logic [15:0]       dst_port;    // 0 = wildcard
+    rule_action_t      action;
+    logic [7:0]        class_id;
+    modifier_action_t  mod_action;
+    modifier_data_t    mod_data;
+  } match_entry_t;
+
+  // ---------------------------------------------------------------------------
   // Flow table
   // ---------------------------------------------------------------------------
   parameter int FLOW_KEY_W = 104;  // 32+32+8+16+16 = 5-tuple bits

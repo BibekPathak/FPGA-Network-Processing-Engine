@@ -18,7 +18,6 @@ module parser_pipeline #(
 
     output packet_metadata_t            m_meta,
 
-    // Statistics counters
     output logic [47:0]                 cnt_packets,
     output logic [47:0]                 cnt_bytes,
     output logic [47:0]                 cnt_ipv4,
@@ -31,13 +30,15 @@ module parser_pipeline #(
 
   import npe_pkg::*;
 
-  // Inter-stage connections
-  packet_metadata_t meta_eth, meta_vlan, meta_ip, meta_l4, meta_class, meta_rule, meta_stats;
-  logic [DATA_WIDTH-1:0]   d_eth, d_vlan, d_ip, d_l4, d_class, d_rule, d_stats, d_flow;
-  logic [DATA_WIDTH/8-1:0] k_eth, k_vlan, k_ip, k_l4, k_class, k_rule, k_stats, k_flow;
-  logic                     l_eth, l_vlan, l_ip, l_l4, l_class, l_rule, l_stats, l_flow;
-  logic                     v_eth, v_vlan, v_ip, v_l4, v_class, v_rule, v_stats, v_flow;
-  logic                     r_eth, r_vlan, r_ip, r_l4, r_class, r_rule, r_stats, r_flow;
+  // Inter-stage signals
+  packet_metadata_t m_eth, m_vlan, m_ip, m_l4, m_match;
+  logic [DATA_WIDTH-1:0]   d_eth, d_vlan, d_ip, d_l4, d_match, d_mod, d_stats, d_flow;
+  logic [DATA_WIDTH/8-1:0] k_eth, k_vlan, k_ip, k_l4, k_match, k_mod, k_stats, k_flow;
+  logic                     l_eth, l_vlan, l_ip, l_l4, l_match, l_mod, l_stats, l_flow;
+  logic                     v_eth, v_vlan, v_ip, v_l4, v_match, v_mod, v_stats, v_flow;
+  logic                     r_eth, r_vlan, r_ip, r_l4, r_match, r_mod, r_stats, r_flow;
+  modifier_action_t         mod_act;
+  modifier_data_t           mod_dat;
 
   // Stage 1: Ethernet parser
   ethernet_parser #(.DATA_WIDTH(DATA_WIDTH)) eth_inst (
@@ -45,7 +46,7 @@ module parser_pipeline #(
     .s_tdata, .s_tkeep, .s_tlast, .s_tvalid, .s_tready,
     .m_tdata(d_eth), .m_tkeep(k_eth), .m_tlast(l_eth),
     .m_tvalid(v_eth), .m_tready(r_eth),
-    .s_meta('0), .m_meta(meta_eth)
+    .s_meta('0), .m_meta(m_eth)
   );
 
   // Stage 2: VLAN parser
@@ -55,7 +56,7 @@ module parser_pipeline #(
     .s_tvalid(v_eth), .s_tready(r_eth),
     .m_tdata(d_vlan), .m_tkeep(k_vlan), .m_tlast(l_vlan),
     .m_tvalid(v_vlan), .m_tready(r_vlan),
-    .s_meta(meta_eth), .m_meta(meta_vlan)
+    .s_meta(m_eth), .m_meta(m_vlan)
   );
 
   // Stage 3: IPv4 parser
@@ -65,11 +66,11 @@ module parser_pipeline #(
     .s_tvalid(v_vlan), .s_tready(r_vlan),
     .m_tdata(d_ip), .m_tkeep(k_ip), .m_tlast(l_ip),
     .m_tvalid(v_ip), .m_tready(r_ip),
-    .s_meta(meta_vlan), .m_meta(meta_ip)
+    .s_meta(m_vlan), .m_meta(m_ip)
   );
 
-  // Stage 4: TCP/UDP parsers (parallel)
-  packet_metadata_t meta_udp, meta_tcp;
+  // Stage 4: UDP/TCP parsers (parallel)
+  packet_metadata_t m_udp, m_tcp;
   logic [DATA_WIDTH-1:0]   d_udp, d_tcp;
   logic [DATA_WIDTH/8-1:0] k_udp, k_tcp;
   logic                     l_udp, l_tcp;
@@ -81,8 +82,8 @@ module parser_pipeline #(
     .s_tdata(d_ip), .s_tkeep(k_ip), .s_tlast(l_ip),
     .s_tvalid(v_ip), .s_tready(r_udp),
     .m_tdata(d_udp), .m_tkeep(k_udp), .m_tlast(l_udp),
-    .m_tvalid(v_udp), .m_tready(r_rule),
-    .s_meta(meta_ip), .m_meta(meta_udp)
+    .m_tvalid(v_udp), .m_tready(r_match),
+    .s_meta(m_ip), .m_meta(m_udp)
   );
 
   tcp_parser #(.DATA_WIDTH(DATA_WIDTH)) tcp_inst (
@@ -90,47 +91,48 @@ module parser_pipeline #(
     .s_tdata(d_ip), .s_tkeep(k_ip), .s_tlast(l_ip),
     .s_tvalid(v_ip), .s_tready(r_tcp),
     .m_tdata(d_tcp), .m_tkeep(k_tcp), .m_tlast(l_tcp),
-    .m_tvalid(v_tcp), .m_tready(r_rule),
-    .s_meta(meta_ip), .m_meta(meta_tcp)
+    .m_tvalid(v_tcp), .m_tready(r_match),
+    .s_meta(m_ip), .m_meta(m_tcp)
   );
 
   assign r_ip = r_udp && r_tcp;
 
-  // Merge UDP/TCP output
-  assign d_l4    = v_tcp ? d_tcp : d_udp;
-  assign k_l4    = v_tcp ? k_tcp : k_udp;
-  assign l_l4    = v_tcp ? l_tcp : l_udp;
-  assign v_l4    = v_tcp || v_udp;
-  assign meta_l4 = meta_tcp.tcp_valid ? meta_tcp : meta_udp;
+  assign d_l4   = v_tcp ? d_tcp : d_udp;
+  assign k_l4   = v_tcp ? k_tcp : k_udp;
+  assign l_l4   = v_tcp ? l_tcp : l_udp;
+  assign v_l4   = v_tcp || v_udp;
+  assign m_l4   = m_tcp.tcp_valid ? m_tcp : m_udp;
 
-  // Stage 5: Packet classifier
-  packet_classifier #(.DATA_WIDTH(DATA_WIDTH)) class_inst (
+  // Stage 5: Match-action table (replaces classifier + rule engine)
+  match_table #(.DATA_WIDTH(DATA_WIDTH)) match_inst (
     .clk, .rst_n,
     .s_tdata(d_l4), .s_tkeep(k_l4), .s_tlast(l_l4),
-    .s_tvalid(v_l4), .s_tready(r_class),
-    .m_tdata(d_class), .m_tkeep(k_class), .m_tlast(l_class),
-    .m_tvalid(v_class), .m_tready(r_rule),
-    .s_meta(meta_l4), .m_meta(meta_class)
+    .s_tvalid(v_l4), .s_tready(r_match),
+    .m_tdata(d_match), .m_tkeep(k_match), .m_tlast(l_match),
+    .m_tvalid(v_match), .m_tready(r_mod),
+    .s_meta(m_l4), .m_meta(m_match),
+    .m_mod_action(mod_act), .m_mod_data(mod_dat)
   );
 
-  // Stage 6: Rule engine
-  rule_engine #(.DATA_WIDTH(DATA_WIDTH)) rule_inst (
+  // Stage 6: Packet modifier (rewrite data based on match action)
+  packet_modifier #(.DATA_WIDTH(DATA_WIDTH)) mod_inst (
     .clk, .rst_n,
-    .s_tdata(d_class), .s_tkeep(k_class), .s_tlast(l_class),
-    .s_tvalid(v_class), .s_tready(r_rule),
-    .m_tdata(d_rule), .m_tkeep(k_rule), .m_tlast(l_rule),
-    .m_tvalid(v_rule), .m_tready(r_stats),
-    .s_meta(meta_class), .m_meta(meta_rule)
+    .s_tdata(d_match), .s_tkeep(k_match), .s_tlast(l_match),
+    .s_tvalid(v_match), .s_tready(r_mod),
+    .m_tdata(d_mod), .m_tkeep(k_mod), .m_tlast(l_mod),
+    .m_tvalid(v_mod), .m_tready(r_stats),
+    .s_meta(m_match),
+    .s_mod_action(mod_act), .s_mod_data(mod_dat)
   );
 
   // Stage 7: Statistics engine
   stats_engine #(.DATA_WIDTH(DATA_WIDTH)) stats_inst (
     .clk, .rst_n,
-    .s_tdata(d_rule), .s_tkeep(k_rule), .s_tlast(l_rule),
-    .s_tvalid(v_rule), .s_tready(r_stats),
+    .s_tdata(d_mod), .s_tkeep(k_mod), .s_tlast(l_mod),
+    .s_tvalid(v_mod), .s_tready(r_stats),
     .m_tdata(d_stats), .m_tkeep(k_stats), .m_tlast(l_stats),
     .m_tvalid(v_stats), .m_tready(r_flow),
-    .s_meta(meta_rule),
+    .s_meta(m_match),
     .cnt_packets, .cnt_bytes, .cnt_ipv4, .cnt_tcp,
     .cnt_udp, .cnt_arp, .cnt_drops, .cnt_errors
   );
@@ -142,13 +144,13 @@ module parser_pipeline #(
     .s_tvalid(v_stats), .s_tready(r_flow),
     .m_tdata(d_flow), .m_tkeep(k_flow), .m_tlast(l_flow),
     .m_tvalid(v_flow), .m_tready(m_tready),
-    .s_meta(meta_rule)
+    .s_meta(m_match)
   );
 
   assign m_tdata  = d_flow;
   assign m_tkeep  = k_flow;
   assign m_tlast  = l_flow;
   assign m_tvalid = v_flow;
-  assign m_meta   = meta_rule;
+  assign m_meta   = m_match;
 
 endmodule
