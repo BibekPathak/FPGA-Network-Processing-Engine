@@ -25,7 +25,14 @@ module parser_pipeline #(
     output logic [47:0]                 cnt_udp,
     output logic [47:0]                 cnt_arp,
     output logic [47:0]                 cnt_drops,
-    output logic [47:0]                 cnt_errors
+    output logic [47:0]                 cnt_errors,
+
+    // Register interface
+    input  logic                        reg_wen,
+    input  logic [7:0]                  reg_addr,
+    input  logic [31:0]                 reg_wdata,
+    input  logic                        reg_ren,
+    output logic [31:0]                 reg_rdata
 );
 
   import npe_pkg::*;
@@ -103,7 +110,7 @@ module parser_pipeline #(
   assign v_l4   = v_tcp || v_udp;
   assign m_l4   = m_tcp.tcp_valid ? m_tcp : m_udp;
 
-  // Stage 5: Match-action table (replaces classifier + rule engine)
+  // Stage 5: Match-action table
   match_table #(.DATA_WIDTH(DATA_WIDTH)) match_inst (
     .clk, .rst_n,
     .s_tdata(d_l4), .s_tkeep(k_l4), .s_tlast(l_l4),

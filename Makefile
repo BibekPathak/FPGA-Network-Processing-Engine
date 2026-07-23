@@ -15,6 +15,7 @@ TOP_MODULE_tb_match_action := parser_pipeline
 TOP_MODULE_tb_flow       := parser_pipeline
 TOP_MODULE_tb_crc        := crc32
 TOP_MODULE_tb_rate_limiter := token_bucket
+TOP_MODULE_tb_stress     := parser_pipeline
 TOP_MODULE := $(TOP_MODULE_$(TOP))
 
 WAVES      ?= 0

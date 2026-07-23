@@ -30,7 +30,7 @@ module match_table #(
   localparam int KEEP_W = DATA_WIDTH / 8;
 
   // -------------------------------------------------------------------------
-  // Match table (BRAM) — 4 default rules + rest zeroed
+  // Match table (BRAM) — hardcoded defaults
   // -------------------------------------------------------------------------
   match_entry_t rules [NUM_RULES-1:0];
 
@@ -38,39 +38,20 @@ module match_table #(
     for (int r = 0; r < NUM_RULES; r++) begin
       rules[r] = '0;
     end
-    // Rule 0: UDP port 53 (DNS) → ALLOW, class=1, MAC_SWAP
-    rules[0].valid       = 1'b1;
-    rules[0].protocol    = PROTO_UDP;
-    rules[0].dst_port    = 16'd53;
-    rules[0].action      = ACTION_ALLOW;
-    rules[0].class_id    = 8'd1;
-    rules[0].mod_action  = MOD_MAC_SWAP;
-    // Rule 1: TCP port 80 (HTTP) → ALLOW, class=2, NOP
-    rules[1].valid       = 1'b1;
-    rules[1].protocol    = PROTO_TCP;
-    rules[1].dst_port    = 16'd80;
-    rules[1].action      = ACTION_ALLOW;
-    rules[1].class_id    = 8'd2;
-    rules[1].mod_action  = MOD_NOP;
-    // Rule 2: TCP port 443 (HTTPS) → ALLOW, class=3, NOP
-    rules[2].valid       = 1'b1;
-    rules[2].protocol    = PROTO_TCP;
-    rules[2].dst_port    = 16'd443;
-    rules[2].action      = ACTION_ALLOW;
-    rules[2].class_id    = 8'd3;
-    rules[2].mod_action  = MOD_NOP;
-    // Rule 3: TCP port 22 (SSH) → ALLOW, class=4, NOP
-    rules[3].valid       = 1'b1;
-    rules[3].protocol    = PROTO_TCP;
-    rules[3].dst_port    = 16'd22;
-    rules[3].action      = ACTION_ALLOW;
-    rules[3].class_id    = 8'd4;
-    rules[3].mod_action  = MOD_NOP;
-    // Rule 4: catch-all unmatched → ALLOW, class=0, TTL_DEC
-    rules[4].valid       = 1'b1;
-    rules[4].action      = ACTION_ALLOW;
-    rules[4].class_id    = 8'd0;
-    rules[4].mod_action  = MOD_TTL_DEC;
+    rules[0].valid = 1'b1; rules[0].protocol = PROTO_UDP;
+    rules[0].dst_port = 16'd53; rules[0].action = ACTION_ALLOW;
+    rules[0].class_id = 8'd1; rules[0].mod_action = MOD_NOP;
+    rules[1].valid = 1'b1; rules[1].protocol = PROTO_TCP;
+    rules[1].dst_port = 16'd80; rules[1].action = ACTION_ALLOW;
+    rules[1].class_id = 8'd2; rules[1].mod_action = MOD_NOP;
+    rules[2].valid = 1'b1; rules[2].protocol = PROTO_TCP;
+    rules[2].dst_port = 16'd443; rules[2].action = ACTION_ALLOW;
+    rules[2].class_id = 8'd3; rules[2].mod_action = MOD_NOP;
+    rules[3].valid = 1'b1; rules[3].protocol = PROTO_TCP;
+    rules[3].dst_port = 16'd22; rules[3].action = ACTION_ALLOW;
+    rules[3].class_id = 8'd4; rules[3].mod_action = MOD_NOP;
+    rules[4].valid = 1'b1; rules[4].action = ACTION_ALLOW;
+    rules[4].class_id = 8'd0; rules[4].mod_action = MOD_TTL_DEC;
   end
 
   // -------------------------------------------------------------------------
