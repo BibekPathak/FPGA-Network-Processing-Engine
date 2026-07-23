@@ -1,0 +1,23 @@
+# SymbiYosys formal verification for axis_fifo
+# Run: sby -f fifo.sby
+
+[fifo]
+mode: prove
+depth: 20
+
+[options]
+engines: smtbmc
+
+[engines]
+smtbmc
+
+[scripts]
+read_verilog -sv ../../rtl/common/npe_pkg.sv
+read_verilog -sv ../../rtl/interfaces/axis_fifo.sv
+read_verilog -sv fifo.sv
+prep -top fifo_formal
+
+[files]
+../../rtl/common/npe_pkg.sv
+../../rtl/interfaces/axis_fifo.sv
+fifo.sv
