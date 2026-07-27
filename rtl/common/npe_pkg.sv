@@ -97,14 +97,16 @@ package npe_pkg;
   // ---------------------------------------------------------------------------
   // Match-action pipeline
   // ---------------------------------------------------------------------------
-  typedef enum logic [2:0] {
-    MOD_NOP       = 3'd0,
-    MOD_TTL_DEC   = 3'd1,
-    MOD_MAC_SWAP  = 3'd2,   // swap src/dst MAC
-    MOD_MAC_SET   = 3'd3,   // set new src/dst MAC
-    MOD_IP_SET    = 3'd4,   // set new src/dst IP
-    MOD_VLAN_PUSH = 3'd5,   // insert VLAN tag
-    MOD_VLAN_POP  = 3'd6    // remove VLAN tag
+  typedef enum logic [3:0] {
+    MOD_NOP       = 4'd0,
+    MOD_TTL_DEC   = 4'd1,
+    MOD_MAC_SWAP  = 4'd2,
+    MOD_MAC_SET   = 4'd3,
+    MOD_IP_SET    = 4'd4,
+    MOD_VLAN_PUSH = 4'd5,
+    MOD_VLAN_POP  = 4'd6,
+    MOD_DSCP_SET  = 4'd7,
+    MOD_ECN_SET   = 4'd8
   } modifier_action_t;
 
   typedef struct packed {
@@ -114,6 +116,8 @@ package npe_pkg;
     logic [31:0]  new_dst_ip;
     logic [11:0]  vlan_id;
     logic [2:0]   vlan_prio;
+    logic [5:0]   new_dscp;
+    logic [1:0]   new_ecn;
   } modifier_data_t;
 
   typedef struct packed {

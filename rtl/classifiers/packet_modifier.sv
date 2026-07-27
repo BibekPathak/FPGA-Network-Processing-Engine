@@ -124,6 +124,27 @@ module packet_modifier #(
           for (int i = 12; i < KEEP_W; i++)
             mod_tkeep[i] = (i+4 < KEEP_W) ? s_tkeep[i+4] : 1'b0;
         end
+        MOD_DSCP_SET: begin
+          if (s_meta.ipv4_valid) begin
+            logic [7:0] old_byte, new_byte;
+            old_byte = byte_at(s_tdata, ip_off + 1);
+            new_byte = {s_mod_data.new_dscp, old_byte[1:0]};
+            mod_tdata[(ip_off+1)*8 +: 8] = new_byte;
+            // Checksum adjustment: add (old_word_hi_byte + old_byte - new_byte)
+            // In practice, just increment checksum by delta in upper byte
+            csum_val = word16_be(s_tdata, ip_off + 10);
+            mod_tdata[(ip_off+11)*8-1 -: 8] = csum_val[15:8] + (old_byte[7:2] - s_mod_data.new_dscp);
+            mod_tdata[(ip_off+10)*8 +: 8] = csum_val[7:0];
+          end
+        end
+        MOD_ECN_SET: begin
+          if (s_meta.ipv4_valid) begin
+            logic [7:0] old_byte, new_byte;
+            old_byte = byte_at(s_tdata, ip_off + 1);
+            new_byte = {old_byte[7:2], s_mod_data.new_ecn};
+            mod_tdata[(ip_off+1)*8 +: 8] = new_byte;
+          end
+        end
         default: ;
       endcase
     end
