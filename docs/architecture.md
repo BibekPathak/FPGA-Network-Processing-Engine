@@ -1,6 +1,6 @@
 # FPGA Network Processing Engine (NPE)
 
-A fully pipelined, configurable Layer 2–Layer 4 packet processing engine written in SystemVerilog with AXI-Stream interfaces, protocol parsers, packet classification, filtering, flow tracking, and cycle-accurate verification.
+A fully pipelined, configurable Layer 2–Layer 4 packet processing engine written in SystemVerilog featuring protocol parsing, programmable match-action processing with packet modification, Toeplitz-hash flow tracking, weighted round-robin scheduling, runtime register configuration, Python control plane, formal verification with SymbiYosys, and synthesis targeting an Artix-7 FPGA.
 
 ---
 
