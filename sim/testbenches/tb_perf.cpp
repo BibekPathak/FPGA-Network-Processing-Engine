@@ -48,6 +48,7 @@ struct PerfResult {
   double cycles_per_packet = 0;
   double cycles_per_byte = 0;
   double throughput_gbps = 0;
+  double throughput_mpps = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -140,6 +141,7 @@ PerfResult measure(Sim& sim, const std::vector<uint8_t>& pkt, int dw,
   double seconds = r.total_cycles / 156.25e6;
   if (seconds > 0)
     r.throughput_gbps = (r.total_bytes * 8.0) / seconds / 1e9;
+  r.throughput_mpps = r.packets / seconds / 1e6;
 
   return r;
 }
@@ -149,10 +151,10 @@ PerfResult measure(Sim& sim, const std::vector<uint8_t>& pkt, int dw,
 // ---------------------------------------------------------------------------
 void print_result(const char* label, const PerfResult& r, int pkt_size) {
   printf("%-20s %4d pkts %4d B  "
-         "lat=%3.0f cyc  cyc/pkt=%5.1f  cyc/B=%5.3f  thrpt=%5.2f Gbps\n",
+         "lat=%3.0f cyc  cyc/pkt=%5.1f  %5.2f Gbps  %5.1f Mpps\n",
          label, (int)r.packets, pkt_size,
          r.latency_cycles, r.cycles_per_packet,
-         r.cycles_per_byte, r.throughput_gbps);
+         r.throughput_gbps, r.throughput_mpps);
 }
 
 // ---------------------------------------------------------------------------
@@ -252,15 +254,16 @@ int main(int argc, char** argv) {
       } else { sim.post(); break; }
     }
     double sec = (sim.cycles - start) / 156.25e6;
+    double mpps = sec > 0 ? pkt_count / sec / 1e6 : 0;
     printf("%-20s %4d pkts mixed  "
-           "thrpt=%5.2f Gbps  cyc/pkt=%5.1f\n",
+           "%5.2f Gbps  %5.1f Mpps  cyc/pkt=%5.1f\n",
            "Mixed (64+1518B)", pkt_count,
-           sec > 0 ? (total_bytes * 8.0) / sec / 1e9 : 0,
+           sec > 0 ? (total_bytes * 8.0) / sec / 1e9 : 0, mpps,
            (double)(sim.cycles - start) / pkt_count);
   }
 
   printf("\n--- CSV ---\n");
-  printf("packet_size,packets,latency_cyc,cyc_per_pkt,cyc_per_byte,gbps\n");
+  printf("packet_size,packets,latency_cyc,cyc_per_pkt,gbps,mpps\n");
 
   for (auto& t : std::vector<std::pair<int,const char*>>{
          {64,"UDP"},{256,"UDP"},{512,"UDP"},{1518,"UDP"},{64,"TCP"}}) {
@@ -270,10 +273,10 @@ int main(int argc, char** argv) {
       : gen.make_tcp_packet(sm,dm,0xC0A80001,0xC0A80002,4321,443,
                              std::vector<uint8_t>(t.first-54,'x'));
     sim.reset(); auto r = measure(sim, pkt, dw, num);
-    printf("%d,%d,%.0f,%.1f,%.3f,%.2f\n",
+    printf("%d,%d,%.0f,%.1f,%.2f,%.1f\n",
            t.first, (int)r.packets,
            r.latency_cycles, r.cycles_per_packet,
-           r.cycles_per_byte, r.throughput_gbps);
+           r.throughput_gbps, r.throughput_mpps);
   }
 
   return 0;

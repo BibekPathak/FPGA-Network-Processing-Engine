@@ -4,25 +4,27 @@ module register_iface #(
     input  logic                    clk,
     input  logic                    rst_n,
 
-    // Register access
-    input  logic                    reg_wen,
-    input  logic [7:0]              reg_addr,
-    input  logic [31:0]             reg_wdata,
-    input  logic                    reg_ren,
-    output logic [31:0]             reg_rdata,
+    input  logic [31:0]             s_axi_awaddr,
+    input  logic                    s_axi_awvalid,
+    output logic                    s_axi_awready,
 
-    // Match table rule configuration (combinational read, registered write)
-    output logic [NUM_RULES-1:0]    rule_valid,
-    output logic [7:0]              rule_protocol   [NUM_RULES-1:0],
-    output logic [31:0]             rule_src_ip     [NUM_RULES-1:0],
-    output logic [31:0]             rule_dst_ip     [NUM_RULES-1:0],
-    output logic [15:0]             rule_src_port   [NUM_RULES-1:0],
-    output logic [15:0]             rule_dst_port   [NUM_RULES-1:0],
-    output logic [1:0]              rule_action     [NUM_RULES-1:0],
-    output logic [7:0]              rule_class_id   [NUM_RULES-1:0],
-    output logic [2:0]              rule_mod_action [NUM_RULES-1:0],
+    input  logic [31:0]             s_axi_wdata,
+    input  logic                    s_axi_wvalid,
+    output logic                    s_axi_wready,
 
-    // Stats readout
+    output logic [1:0]              s_axi_bresp,
+    output logic                    s_axi_bvalid,
+    input  logic                    s_axi_bready,
+
+    input  logic [31:0]             s_axi_araddr,
+    input  logic                    s_axi_arvalid,
+    output logic                    s_axi_arready,
+
+    output logic [31:0]             s_axi_rdata,
+    output logic [1:0]              s_axi_rresp,
+    output logic                    s_axi_rvalid,
+    input  logic                    s_axi_rready,
+
     input  logic [47:0]             cnt_packets,
     input  logic [47:0]             cnt_bytes,
     input  logic [47:0]             cnt_ipv4,
@@ -33,50 +35,122 @@ module register_iface #(
     input  logic [47:0]             cnt_errors
 );
 
-  // -------------------------------------------------------------------------
-  // Register address map
-  // -------------------------------------------------------------------------
-  localparam ADDR_CTRL      = 8'h00;
-  localparam ADDR_RULE_BASE = 8'h10;  // 16 rules × 4 regs each = 0x10-0x4F
-  localparam ADDR_STATS_BASE = 8'h50; // 8 stats × 2 regs each = 0x50-0x5F
-  localparam ADDR_SCHED     = 8'h60;
-
-  // Rule register layout (4 × 32-bit registers per rule):
-  //   reg 0: {8'd0, protocol, src_port, dst_port}  (aligned for match)
-  //   reg 1: src_ip
-  //   reg 2: dst_ip
-  //   reg 3: {valid, 8'd0, mod_action, action, class_id}
-
-  // -------------------------------------------------------------------------
-  // Register file
-  // -------------------------------------------------------------------------
   logic [31:0] regs [64];
+
+  // ---------------------------------------------------------------------------
+  // Combined AXI-Lite Write: FSM + register write in one always_ff block
+  // ---------------------------------------------------------------------------
+  typedef enum logic [1:0] { W_IDLE, W_RESP } wstate_t;
+  wstate_t wstate;
+  logic [7:0]  waddr_q;
 
   always_ff @(posedge clk) begin
     if (!rst_n) begin
       for (int i = 0; i < 64; i++) regs[i] <= '0;
-    end else if (reg_wen) begin
-      regs[reg_addr] <= reg_wdata;
+      wstate        <= W_IDLE;
+      s_axi_awready <= 1'b0;
+      s_axi_wready  <= 1'b0;
+      s_axi_bvalid  <= 1'b0;
+      s_axi_bresp   <= 2'b00;
+      waddr_q       <= '0;
+    end else begin
+      s_axi_awready <= 1'b0;
+      s_axi_wready  <= 1'b0;
+      s_axi_bvalid  <= 1'b0;
+
+      case (wstate)
+        W_IDLE: begin
+          if (s_axi_awvalid) begin
+            s_axi_awready <= 1'b1;
+            waddr_q       <= s_axi_awaddr[7:0];
+            if (s_axi_wvalid) begin
+              s_axi_wready  <= 1'b1;
+              regs[s_axi_awaddr[7:0]] <= s_axi_wdata;
+              wstate        <= W_RESP;
+            end
+          end else if (s_axi_wvalid) begin
+            s_axi_wready <= 1'b1;
+            if (wstate == W_IDLE && s_axi_awvalid) begin
+              // handled above
+            end
+          end
+        end
+
+        W_RESP: begin
+          s_axi_bvalid <= 1'b1;
+          s_axi_bresp  <= 2'b00;
+          if (s_axi_bready) begin
+            wstate <= W_IDLE;
+          end
+        end
+      endcase
     end
   end
 
-  assign reg_rdata = reg_ren ? regs[reg_addr] : '0;
+  // ---------------------------------------------------------------------------
+  // AXI-Lite Read FSM
+  // ---------------------------------------------------------------------------
+  typedef enum logic [1:0] { R_IDLE, R_DATA } rstate_t;
+  rstate_t rstate;
 
-  // -------------------------------------------------------------------------
-  // Wire registers to rule configuration outputs
-  // -------------------------------------------------------------------------
-  always_comb begin
-    for (int r = 0; r < NUM_RULES; r++) begin
-      rule_valid[r]      = regs[ADDR_RULE_BASE + r*4 + 3][31];
-      rule_class_id[r]   = regs[ADDR_RULE_BASE + r*4 + 3][15:8];
-      rule_action[r]     = regs[ADDR_RULE_BASE + r*4 + 3][7:6];
-      rule_mod_action[r] = regs[ADDR_RULE_BASE + r*4 + 3][2:0];
-      rule_protocol[r]   = regs[ADDR_RULE_BASE + r*4 + 0][31:24];
-      rule_src_port[r]   = regs[ADDR_RULE_BASE + r*4 + 0][23:8];
-      rule_dst_port[r]   = regs[ADDR_RULE_BASE + r*4 + 0][7:0];
-      rule_src_ip[r]     = regs[ADDR_RULE_BASE + r*4 + 1];
-      rule_dst_ip[r]     = regs[ADDR_RULE_BASE + r*4 + 2];
+  always_ff @(posedge clk) begin
+    if (!rst_n) begin
+      rstate        <= R_IDLE;
+      s_axi_arready <= 1'b0;
+      s_axi_rvalid  <= 1'b0;
+      s_axi_rdata   <= '0;
+      s_axi_rresp   <= 2'b00;
+    end else begin
+      s_axi_arready <= 1'b0;
+      s_axi_rvalid  <= 1'b0;
+
+      case (rstate)
+        R_IDLE: begin
+          if (s_axi_arvalid) begin
+            s_axi_arready <= 1'b1;
+            s_axi_rdata   <= read_mux(s_axi_araddr[7:0]);
+            s_axi_rvalid  <= 1'b1;
+            rstate        <= R_DATA;
+          end
+        end
+
+        R_DATA: begin
+          s_axi_rvalid <= 1'b1;
+          if (s_axi_rready) begin
+            rstate <= R_IDLE;
+          end
+        end
+      endcase
     end
   end
+
+  // ---------------------------------------------------------------------------
+  // Read mux
+  // ---------------------------------------------------------------------------
+  function automatic logic [31:0] read_mux(logic [7:0] addr);
+    if (addr >= 8'h50 && addr < 8'h60) begin
+      unique case (addr)
+        8'h50: return cnt_packets[31:0];
+        8'h51: return {16'h0000, cnt_packets[47:32]};
+        8'h52: return cnt_bytes[31:0];
+        8'h53: return {16'h0000, cnt_bytes[47:32]};
+        8'h54: return cnt_ipv4[31:0];
+        8'h55: return {16'h0000, cnt_ipv4[47:32]};
+        8'h56: return cnt_tcp[31:0];
+        8'h57: return {16'h0000, cnt_tcp[47:32]};
+        8'h58: return cnt_udp[31:0];
+        8'h59: return {16'h0000, cnt_udp[47:32]};
+        8'h5A: return cnt_arp[31:0];
+        8'h5B: return {16'h0000, cnt_arp[47:32]};
+        8'h5C: return cnt_drops[31:0];
+        8'h5D: return {16'h0000, cnt_drops[47:32]};
+        8'h5E: return cnt_errors[31:0];
+        8'h5F: return {16'h0000, cnt_errors[47:32]};
+        default: return '0;
+      endcase
+    end else begin
+      return regs[addr];
+    end
+  endfunction
 
 endmodule

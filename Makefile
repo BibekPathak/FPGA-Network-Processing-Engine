@@ -16,6 +16,7 @@ TOP_MODULE_tb_flow       := parser_pipeline
 TOP_MODULE_tb_crc        := crc32
 TOP_MODULE_tb_rate_limiter := token_bucket
 TOP_MODULE_tb_stress     := parser_pipeline
+TOP_MODULE_tb_axi_lite   := register_iface
 TOP_MODULE := $(TOP_MODULE_$(TOP))
 
 WAVES      ?= 0
@@ -57,7 +58,8 @@ RTL_SCHEDULERS := \
 	$(RTL_DIR)/schedulers/packet_scheduler.sv
 
 RTL_TOP    := \
-	$(RTL_DIR)/top/parser_pipeline.sv
+	$(RTL_DIR)/top/parser_pipeline.sv \
+	$(RTL_DIR)/top/register_iface.sv
 
 RTL_SRCS   := $(RTL_CORE) $(RTL_PARSERS) $(RTL_CLASSIFIERS) $(RTL_FILTERS) $(RTL_STATS) $(RTL_MEMORY) $(RTL_SCHEDULERS) $(RTL_TOP)
 
