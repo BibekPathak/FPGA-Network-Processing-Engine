@@ -1,7 +1,8 @@
 module flow_table #(
-    parameter int DATA_WIDTH  = 512,
-    parameter int NUM_FLOWS   = 128,
-    parameter int LOG2_FLOWS  = $clog2(NUM_FLOWS / 2)  // 2-way: half the indices
+    parameter int DATA_WIDTH   = 512,
+    parameter int NUM_FLOWS    = 128,
+    parameter int LOG2_FLOWS   = $clog2(NUM_FLOWS / 2),
+    parameter int TIMEOUT_CYCLES = 100000  // idle timeout in cycles
 ) (
     input  logic                        clk,
     input  logic                        rst_n,
@@ -86,20 +87,43 @@ module flow_table #(
   assign set_idx = hash_accum[LOG2_SETS-1:0];
 
   // -------------------------------------------------------------------------
-  // Lookup: check both ways
+  // Global cycle counter for aging
+  // -------------------------------------------------------------------------
+  logic [31:0] now;
+
+  always_ff @(posedge clk) begin
+    if (!rst_n) now <= '0;
+    else now <= now + 1'b1;
+  end
+
+  // -------------------------------------------------------------------------
+  // Lookup: check both ways (with idle timeout)
   // -------------------------------------------------------------------------
   wire update_en = s_tvalid && s_tready && s_tlast;
 
   flow_entry_t rd_entry [NUM_WAYS-1:0];
+  logic        way_valid [NUM_WAYS-1:0];  // valid AND not expired
   logic        way_hit [NUM_WAYS-1:0];
 
   assign rd_entry[0] = flow_ram[0][set_idx];
   assign rd_entry[1] = flow_ram[1][set_idx];
 
+  // A way is valid if its entry is valid AND not timed out
+  assign way_valid[0] = rd_entry[0].valid &&
+                        (now - rd_entry[0].last_seen < TIMEOUT_CYCLES);
+  assign way_valid[1] = rd_entry[1].valid &&
+                        (now - rd_entry[1].last_seen < TIMEOUT_CYCLES);
+
   assign way_hit[0]  = rd_entry[0].valid && (rd_entry[0].key == flow_key);
   assign way_hit[1]  = rd_entry[1].valid && (rd_entry[1].key == flow_key);
 
-  assign flow_hit = way_hit[0] || way_hit[1];
+  assign flow_hit = (way_hit[0] && way_valid[0]) ||
+                    (way_hit[1] && way_valid[1]);
+
+  // Expired entry detection (for clearing)
+  logic expired_hit;
+  assign expired_hit = (way_hit[0] && !way_valid[0]) ||
+                       (way_hit[1] && !way_valid[1]);
 
   // -------------------------------------------------------------------------
   // Update on packet end
@@ -126,23 +150,37 @@ module flow_table #(
       if (flow_hit) begin
         // Update hit entry
         for (w = 0; w < NUM_WAYS; w++) begin
-          if (way_hit[w]) begin
+          if (way_hit[w] && way_valid[w]) begin
             flow_ram[w][set_idx].packet_count <= hit_pkt_cnt + 1'b1;
             flow_ram[w][set_idx].byte_count   <= hit_byte_cnt + s_meta.pkt_length;
-            // Update LRU: make this way the most recently used
+            flow_ram[w][set_idx].last_seen    <= now;
+            lru[set_idx] <= (w == 0) ? 1'b1 : 1'b0;
+          end
+        end
+      end else if (expired_hit) begin
+        // Entry exists but expired — clear and reinsert
+        for (w = 0; w < NUM_WAYS; w++) begin
+          if (way_hit[w]) begin
+            flow_ram[w][set_idx].valid         <= 1'b1;
+            flow_ram[w][set_idx].packet_count  <= 48'd1;
+            flow_ram[w][set_idx].byte_count    <= s_meta.pkt_length;
+            flow_ram[w][set_idx].last_seen    <= now;
             lru[set_idx] <= (w == 0) ? 1'b1 : 1'b0;
           end
         end
       end else begin
         // Miss: insert into LRU way
-        w = lru[set_idx] ? 0 : 1;  // insert into LRU way
+        w = lru[set_idx] ? 0 : 1;
         flow_ram[w][set_idx].valid         <= 1'b1;
         flow_ram[w][set_idx].key           <= flow_key;
         flow_ram[w][set_idx].packet_count  <= 48'd1;
         flow_ram[w][set_idx].byte_count    <= s_meta.pkt_length;
-        // Flip LRU for next eviction
+        flow_ram[w][set_idx].last_seen    <= now;
         lru[set_idx] <= ~lru[set_idx];
       end
+    end else begin
+      // Even without packet, check for expired entries (lazy)
+      // Expired entries will be cleaned on next access to this set.
     end
   end
 

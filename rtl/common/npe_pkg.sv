@@ -151,6 +151,7 @@ package npe_pkg;
     flow_key_t    key;
     logic [47:0]  packet_count;
     logic [63:0]  byte_count;
+    logic [31:0]  last_seen;   // cycle timestamp for idle timeout
   } flow_entry_t;
 
   // ---------------------------------------------------------------------------
