@@ -1,0 +1,23 @@
+[timestart]
+[timeend]
+[width] 1024
+[height] 600
+
+[*]
+[sst] top.parser_pipeline
+[st] top.clk
+[st] top.s_tvalid
+[st] top.s_tready
+[st] top.s_tdata[63:0]
+[st] top.s_tlast
+[st] top.m_tvalid
+[st] top.m_tready
+[st] top.m_tdata[63:0]
+[st] top.m_tlast
+[treeopen] top.parser_pipeline
+[treeopen] top.parser_pipeline.match_inst
+[st] top.parser_pipeline.match_inst.mod_action
+[st] top.parser_pipeline.mod_inst.pipe_mod_action
+[treeopen] top.parser_pipeline.stats_inst
+[st] top.parser_pipeline.stats_inst.cnt_packets
+[st] top.parser_pipeline.flow_inst.flow_hit

@@ -103,10 +103,14 @@ run: $(TARGET)
 	@$(TARGET)
 
 waves: WAVES := 1
-waves: clean build
+waves: clean
+	$(MAKE) build WAVES=1
 	@echo "Running with wave dump..."
-	@$(TARGET)
-	@echo "Waveform: $(BUILD_DIR)/waveform.vcd"
+	@mkdir -p $(BUILD_DIR)
+	cd $(BUILD_DIR)/obj_dir && ./$(TOP) +trace
+	@echo ""
+	@echo "Waveform: $(BUILD_DIR)/obj_dir/waveform.vcd"
+	@echo "View with: gtkwave $(BUILD_DIR)/obj_dir/waveform.vcd"
 
 clean:
 	rm -rf $(BUILD_DIR)
